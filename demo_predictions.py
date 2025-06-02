@@ -5,7 +5,7 @@ Tests the prediction system with available models on real audio files
 """
 
 from pathlib import Path
-from predict_drone_sounds import DroneAudioPredictor, list_available_models
+from predict.predict_drone_sounds import DroneAudioPredictor, list_available_models
 
 def get_sounds_files():
     """Get all audio files from the sounds folder"""
