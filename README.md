@@ -4,18 +4,18 @@ A state-of-the-art audio classification system for detecting drone sounds using 
 
 ## 🏆 Project Highlights
 
-- **Champion Model**: AST achieved **100% accuracy** on drone detection
+- **Champion Model**: Wav2Vec
 - **Multi-Model Comparison**: Comprehensive evaluation of 3 transformer architectures
 - **Apple Silicon Optimized**: Full MPS acceleration support for M-series chips
 - **Production Ready**: Complete pipeline from training to deployment
 
 ## 📊 Model Performance
 
-| Model | Accuracy | F1-Score | Demo Performance | 
-|-------|----------|----------|------------------|
-| **AST** | 🏆 **100.0%** | **100.0%** | 100% (12/12) | 
-| **Wav2Vec2** | 99.91% | 99.91% | 100% (12/12) |
-| **HuBERT** | 99.82% | 99.82% | 75% (9/12) |
+| Model | Accuracy | F1-Score | Demo Performance | Comments |
+|-------|----------|----------|------------------|---------|
+| **Wav2Vec2** | 99.91% | 99.91% | 100% (12/12) | Best results overall |
+| **HuBERT** | 99.82% | 99.82% | 75% (9/12) | The fastest learner of all. |
+| **AST** | **100.0%** | **100.0%** | 100% (12/12) | - There has been overfitting on the training data, so the results are actually poor for the Audio Spectrogram Transformer model.
 
 ## 🛠️ Installation
 
@@ -112,7 +112,7 @@ dl-capstone/
 
 ## 🔬 Model Architectures
 
-### 1. **Audio Spectrogram Transformer (AST)** 🏆
+### 1. **Audio Spectrogram Transformer (AST)** 
 - **Architecture**: Vision Transformer adapted for audio spectrograms
 - **Pre-training**: AudioSet (2M+ audio clips)
 - **Approach**: Treats audio spectrograms as image patches
@@ -120,7 +120,7 @@ dl-capstone/
 
 ### 2. **Wav2Vec2**
 - **Architecture**: Convolutional feature extraction + Transformer encoder
-- **Pre-training**: 960 hours of unlabeled speech (LibriSpeech)
+- **Pre-training**: 
 - **Approach**: Self-supervised learning on raw audio waveforms
 - **Results**: 99.91% accuracy
 
@@ -271,15 +271,6 @@ feature_extractor = AutoFeatureExtractor.from_pretrained("production_model/")
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🎓 Academic Context
-
-This project serves as a capstone demonstration of:
-- **Deep Learning**: Transformer architectures for audio
-- **Transfer Learning**: Pre-trained model adaptation
-- **Audio Processing**: Signal processing and feature extraction
-- **Model Evaluation**: Comprehensive performance analysis
-- **Production ML**: End-to-end pipeline development
-
 ## 🔗 References
 
 - [Wav2Vec2 Paper](https://arxiv.org/abs/2006.11477)
@@ -289,4 +280,3 @@ This project serves as a capstone demonstration of:
 
 ---
 
-**Champion Model**: AST (100% accuracy) ready for production deployment 🏆
