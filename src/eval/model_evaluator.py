@@ -303,16 +303,13 @@ class DroneAudioModelEvaluator:
         """
         print("📈 Creating visualizations...")
         
-        # Initialize visualizer
+        # Initialize visualizer - delegate all visualization logic to it
         visualizer = AudioClassificationVisualizer(self.results_dir)
         
-        # Try to extract training history from trainer state
-        training_history = self._extract_training_history()
-        
-        # Create all visualizations
-        viz_files = visualizer.create_all_visualizations(
-            self.evaluation_results, 
-            training_history, 
+        # Let visualizer handle training history extraction and visualization creation
+        viz_files = visualizer.create_all_visualizations_for_model(
+            self.evaluation_results,
+            self.model_path,
             self.model_name
         )
         
@@ -321,53 +318,6 @@ class DroneAudioModelEvaluator:
         
         return created_files
     
-    def _extract_training_history(self) -> Dict[str, List]:
-        """
-        Attempt to extract training history from trainer state.
-        
-        Returns:
-            dict: Training history data
-        """
-        try:
-            # Look for trainer state files in model directory
-            trainer_state_files = list(self.model_path.glob("**/trainer_state.json"))
-            
-            if trainer_state_files:
-                # Use the latest trainer state file (most complete training history)
-                latest_trainer_state = sorted(trainer_state_files)[-1]
-                print(f"📊 Found {len(trainer_state_files)} trainer state file(s)")
-                print(f"📊 Using latest trainer state: {latest_trainer_state}")
-                
-                visualizer = AudioClassificationVisualizer(self.results_dir)
-                training_history = visualizer.extract_training_history_from_trainer_state(latest_trainer_state)
-                
-                # Debug: Print what we extracted
-                print(f"📈 Extracted training history:")
-                print(f"   - Training loss points: {len(training_history.get('train_loss', []))}")
-                print(f"   - Evaluation loss points: {len(training_history.get('eval_loss', []))}")
-                print(f"   - Evaluation accuracy points: {len(training_history.get('eval_accuracy', []))}")
-                
-                return training_history
-            else:
-                print("ℹ️  No trainer state file found, using empty training history")
-                return {
-                    'train_loss': [],
-                    'eval_loss': [],
-                    'eval_accuracy': [],
-                    'eval_f1': [],
-                    'eval_precision': [],
-                    'eval_recall': []
-                }
-        except Exception as e:
-            print(f"⚠️  Warning: Failed to extract training history: {e}")
-            return {
-                'train_loss': [],
-                'eval_loss': [],
-                'eval_accuracy': [],
-                'eval_f1': [],
-                'eval_precision': [],
-                'eval_recall': []
-            }
     
     def regenerate_learning_curves_only(self) -> Optional[Path]:
         """
@@ -383,19 +333,17 @@ class DroneAudioModelEvaluator:
             if self.model_name is None:
                 self.model_name = self.model_path.name.replace("_drone_classifier", "")
             
-            # Extract training history
-            training_history = self._extract_training_history()
-            
-            # Check if we have any training data
-            if not any(len(v) > 0 for v in training_history.values()):
-                print("❌ No training history data found to visualize")
-                return None
-            
-            # Create visualizer and generate learning curves
+            # Delegate to visualizer to handle everything
             visualizer = AudioClassificationVisualizer(self.results_dir)
-            curves_file = visualizer.plot_learning_curves(training_history, self.model_name)
+            curves_file = visualizer.find_and_visualize_model_learning_curves(
+                self.model_name, self.model_path.parent
+            )
             
-            print(f"✅ Learning curves regenerated: {curves_file}")
+            if curves_file:
+                print(f"✅ Learning curves regenerated: {curves_file}")
+            else:
+                print("❌ No training history data found to visualize")
+            
             return curves_file
             
         except Exception as e:
@@ -486,3 +434,149 @@ def evaluate_model(model_path: str, dataset_name: str = "drone_sampled_0.04", re
     """
     evaluator = DroneAudioModelEvaluator(model_path, results_dir)
     return evaluator.run_full_evaluation(dataset_name)
+
+
+def find_all_trained_models(models_dir: str = "./models") -> List[Path]:
+    """
+    Find all trained models in the models directory.
+    
+    Args:
+        models_dir: Directory containing trained models
+        
+    Returns:
+        list: List of model directory paths
+    """
+    models_dir = Path(models_dir)
+    
+    if not models_dir.exists():
+        print("❌ Models directory not found")
+        return []
+    
+    model_dirs = []
+    for item in models_dir.iterdir():
+        if item.is_dir() and "drone_classifier" in item.name:
+            # Check if it has required files
+            if (item / "config.json").exists() and (item / "model.safetensors").exists():
+                model_dirs.append(item)
+    
+    return sorted(model_dirs)
+
+
+def find_latest_checkpoint(model_path: Path) -> Path:
+    """
+    Find the latest checkpoint for a model, if available.
+    
+    Args:
+        model_path: Path to the model directory
+        
+    Returns:
+        Path: Path to the latest checkpoint or original model path
+    """
+    checkpoints = list(model_path.glob("checkpoint-*"))
+    if checkpoints:
+        # Use the latest checkpoint (highest number)
+        latest_checkpoint = sorted(checkpoints, key=lambda x: int(x.name.split('-')[1]))[-1]
+        print(f"📌 Using latest checkpoint: {latest_checkpoint.name}")
+        return latest_checkpoint
+    else:
+        print("📌 Using base model (no checkpoints found)")
+        return model_path
+
+
+def evaluate_all_models(models_dir: str = "./models", dataset_name: str = "drone_sampled_0.04", results_dir: str = "./results") -> List[Dict[str, Any]]:
+    """
+    Evaluate all available trained models.
+    
+    Args:
+        models_dir: Directory containing trained models
+        dataset_name: Dataset to use for evaluation
+        results_dir: Directory for results
+        
+    Returns:
+        list: List of evaluation results for all models
+    """
+    print("🎯 Evaluating All Available Models")
+    print("=" * 50)
+    
+    models = find_all_trained_models(models_dir)
+    
+    if not models:
+        print("❌ No trained models found")
+        return []
+    
+    print(f"📂 Found {len(models)} trained models:")
+    for model in models:
+        print(f"   • {model.name}")
+    
+    all_results = []
+    
+    for i, model_path in enumerate(models):
+        print(f"\n📊 Evaluating {i+1}/{len(models)}: {model_path.name}")
+        print("-" * 40)
+        
+        try:
+            # Use latest checkpoint if available
+            actual_model_path = find_latest_checkpoint(model_path)
+            
+            # Evaluate using DroneAudioModelEvaluator
+            evaluator = DroneAudioModelEvaluator(str(actual_model_path), results_dir)
+            results, viz_files = evaluator.run_full_evaluation(dataset_name)
+            
+            all_results.append({
+                'model_path': str(model_path),
+                'actual_model_path': str(actual_model_path),
+                'model_name': results['model_name'],
+                'results': results,
+                'viz_files': viz_files
+            })
+            
+            print(f"✅ {results['model_name']} evaluated successfully")
+            print(f"   Accuracy: {results['accuracy']:.4f}")
+            print(f"   F1 Score: {results['f1_score']:.4f}")
+            print(f"   Precision: {results['precision']:.4f}")
+            print(f"   Recall: {results['recall']:.4f}")
+            
+        except Exception as e:
+            print(f"❌ Failed to evaluate {model_path.name}: {e}")
+    
+    return all_results
+
+
+def compare_model_performance(all_results: List[Dict[str, Any]]) -> None:
+    """
+    Compare performance across all evaluated models.
+    
+    Args:
+        all_results: List of evaluation results from evaluate_all_models
+    """
+    print("\n🏆 Model Performance Comparison")
+    print("=" * 50)
+    
+    if not all_results:
+        print("❌ No results to compare")
+        return
+    
+    # Sort by accuracy
+    sorted_results = sorted(all_results, key=lambda x: x['results']['accuracy'], reverse=True)
+    
+    print("📊 Rankings by Accuracy:")
+    for i, result in enumerate(sorted_results):
+        results = result['results']
+        print(f"{i+1:2d}. {results['model_name']:<35} "
+              f"Acc: {results['accuracy']:.4f} "
+              f"F1: {results['f1_score']:.4f} "
+              f"Prec: {results['precision']:.4f} "
+              f"Rec: {results['recall']:.4f}")
+    
+    # Highlight best performing model
+    best_model = sorted_results[0]
+    best_results = best_model['results']
+    
+    print(f"\n🥇 Best Performing Model: {best_results['model_name']}")
+    print(f"   📈 Accuracy: {best_results['accuracy']:.4f}")
+    print(f"   📈 F1 Score: {best_results['f1_score']:.4f}")
+    print(f"   📈 Precision: {best_results['precision']:.4f}")
+    print(f"   📈 Recall: {best_results['recall']:.4f}")
+    
+    if 'roc_data' in best_results and best_results['roc_data']['auc'] is not None:
+        print(f"   📈 AUC Score: {best_results['roc_data']['auc']:.4f}")

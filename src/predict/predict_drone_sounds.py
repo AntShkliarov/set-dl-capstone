@@ -181,6 +181,71 @@ def list_available_models():
     return sorted(model_dirs)
 
 
+def get_best_available_model():
+    """
+    Get the best available model based on performance ranking
+    Returns the path to the highest-performing model available
+    
+    Model preference order (based on accuracy):
+    1. AST (100.0% accuracy)
+    2. Wav2Vec2 (99.91% accuracy)
+    3. HuBERT (99.82% accuracy)
+    """
+    models = list_available_models()
+    if not models:
+        return None
+    
+    # Find models by type with performance preferences
+    ast_model = None
+    wav2vec2_model = None
+    hubert_model = None
+    
+    for model in models:
+        model_name = model.name.lower()
+        if "ast" in model_name:
+            ast_model = model
+        elif "wav2vec2" in model_name:
+            wav2vec2_model = model
+        elif "hubert" in model_name:
+            hubert_model = model
+    
+    # Return best available model in order of preference
+    if ast_model:
+        return ast_model
+    elif wav2vec2_model:
+        return wav2vec2_model
+    elif hubert_model:
+        return hubert_model
+    else:
+        return models[0]  # Return first available model
+
+
+def find_audio_files(directory: str = "./sounds", extensions: list = None) -> list:
+    """
+    Find all audio files in a directory
+    
+    Args:
+        directory: Directory to search for audio files
+        extensions: List of file extensions to search for
+        
+    Returns:
+        list: Sorted list of audio file paths
+    """
+    if extensions is None:
+        extensions = ['.wav', '.mp3', '.flac', '.m4a']
+    
+    audio_dir = Path(directory)
+    if not audio_dir.exists():
+        return []
+    
+    audio_files = []
+    for ext in extensions:
+        audio_files.extend(audio_dir.glob(f'*{ext}'))
+        audio_files.extend(audio_dir.glob(f'*{ext.upper()}'))
+    
+    return sorted(audio_files)
+
+
 def main():
     """Main prediction interface"""
     parser = argparse.ArgumentParser(description="Predict drone sounds from audio files")
@@ -205,21 +270,21 @@ def main():
     if args.model:
         model_path = args.model
     else:
-        models = list_available_models()
-        if not models:
+        # Use best available model automatically
+        best_model = get_best_available_model()
+        if not best_model:
             print("❌ No trained models found")
             return
         
-        print(f"📂 Available models:")
-        for i, model in enumerate(models):
-            print(f"   {i+1}. {model.name}")
+        model_path = str(best_model)
+        print(f"🎯 Using best available model: {best_model.name}")
         
-        choice = input(f"\nSelect model (1-{len(models)}): ")
-        try:
-            model_path = str(models[int(choice) - 1])
-        except (ValueError, IndexError):
-            print("❌ Invalid model selection")
-            return
+        # Show all available models for reference
+        models = list_available_models()
+        print(f"\n📂 All available models ({len(models)}):")
+        for i, model in enumerate(models):
+            marker = " ← SELECTED" if model == best_model else ""
+            print(f"   {i+1}. {model.name}{marker}")
     
     # Get audio file path
     if args.audio:

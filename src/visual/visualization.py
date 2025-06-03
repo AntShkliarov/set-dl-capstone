@@ -127,7 +127,7 @@ class AudioClassificationVisualizer:
         
         # Confusion Matrix
         cm_file = self.plot_confusion_matrix(
-            results['confusion_matrix'], 
+            results['confusion_matrix'],
             model_name,
             class_names=['No Drone', 'Drone']  # Default binary classes
         )
@@ -146,6 +146,39 @@ class AudioClassificationVisualizer:
         
         # Learning Curves
         learning_file = self.plot_learning_curves(training_history, model_name)
+        if learning_file:
+            created_files.append(learning_file)
+        
+        print(f"✅ Created {len(created_files)} visualization files")
+        return created_files
+
+    def create_all_visualizations_for_model(self, results, model_path, model_name):
+        """Create all visualizations for a model including automatic training history extraction"""
+        print("📈 Creating visualizations...")
+        
+        created_files = []
+        
+        # Confusion Matrix
+        cm_file = self.plot_confusion_matrix(
+            results['confusion_matrix'],
+            model_name,
+            class_names=['No Drone', 'Drone']  # Default binary classes
+        )
+        created_files.append(cm_file)
+        
+        # ROC Curve (if binary classification)
+        if results['roc_data']['fpr'] is not None:
+            roc_file = self.plot_roc_curve(
+                results['roc_data']['fpr'],
+                results['roc_data']['tpr'],
+                results['roc_data']['auc'],
+                model_name
+            )
+            if roc_file is not None:
+                created_files.append(roc_file)
+        
+        # Learning Curves - automatically extract training history
+        learning_file = self.find_and_visualize_model_learning_curves(model_name, model_path.parent)
         if learning_file:
             created_files.append(learning_file)
         

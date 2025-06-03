@@ -158,7 +158,7 @@ class DroneAudioPipeline:
         
         # Load model with special handling for AST models
         if "ast" in self.model_name.lower():
-            # For AST models, we need to ignore classifier head mismatches
+            # For AST model, we need to ignore classifier head mismatches as it has been pre-trained on a different number of classes
             self.model = AutoModelForAudioClassification.from_pretrained(
                 self.model_name,
                 num_labels=num_labels,
@@ -168,6 +168,7 @@ class DroneAudioPipeline:
             )
             print("🔧 AST model loaded with classifier head adaptation")
         else:
+
             # For other models (Wav2Vec2, HuBERT), use standard loading
             self.model = AutoModelForAudioClassification.from_pretrained(
                 self.model_name,
@@ -202,9 +203,6 @@ class DroneAudioPipeline:
             # MPS doesn't have direct memory query, estimate based on system
             import psutil
             memory_gb = psutil.virtual_memory().total / (1024**3)
-        elif torch.cuda.is_available():
-            device = "cuda"
-            memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         else:
             device = "cpu"
             import psutil
@@ -237,14 +235,7 @@ class DroneAudioPipeline:
         }
         
         # Device-specific optimizations
-        if device_info['device'] == 'cuda':
-            base_config.update({
-                'fp16': True,
-                'dataloader_num_workers': 4,
-                'per_device_train_batch_size': 16 if device_info['memory'] > 8 else 8,
-                'gradient_accumulation_steps': 1,
-            })
-        elif device_info['device'] == 'mps':
+        if device_info['device'] == 'mps':
             base_config.update({
                 'fp16': False,  # MPS has issues with fp16
                 'dataloader_num_workers': 2,
@@ -279,37 +270,15 @@ class DroneAudioPipeline:
         if self.model is None:
             raise ValueError("Model not setup. Call setup_model() first.")
         
-        # Check device
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-        print(f"Using device: {device}")
+        # Use existing device info and training config methods
+        device_info = self._get_device_info()
+        print(f"Using device: {device_info['device']}")
         
-        # Base training configuration
-        base_config = {
-            "output_dir": str(self.output_dir / f"{self.model_name.replace('/', '_')}_drone_classifier"),
-            "eval_strategy": "epoch",
-            "save_strategy": "epoch",
-            "learning_rate": 3e-5,
-            "per_device_train_batch_size": 8,
-            "per_device_eval_batch_size": 8,
-            "num_train_epochs": 10,
-            "weight_decay": 0.01,
-            "load_best_model_at_end": True,
-            "metric_for_best_model": "accuracy",
-            "push_to_hub": False,
-            "logging_dir": str(self.results_dir / "logs"),
-            "logging_steps": 10,
-            "save_total_limit": 2,
-            "dataloader_num_workers": 0,
-            "fp16": False,
-        }
+        # Use existing training config method
+        training_args = self._get_training_config(device_info, custom_training_args)
         
-        # Override with custom arguments if provided
         if custom_training_args:
-            base_config.update(custom_training_args)
             print(f"🔧 Custom training config applied: {custom_training_args}")
-        
-        # Training configuration
-        training_args = TrainingArguments(**base_config)
         
         # Initialize trainer
         self.trainer = Trainer(
@@ -328,10 +297,9 @@ class DroneAudioPipeline:
         self.trainer.train()
         
         # Save model
+        model_output_dir = self._get_model_output_dir()
         self.trainer.save_model()
-        self.feature_extractor.save_pretrained(
-            str(self.output_dir / f"{self.model_name.replace('/', '_')}_drone_classifier")
-        )
+        self.feature_extractor.save_pretrained(str(model_output_dir))
         
         print("✅ Training completed")
         return self.trainer
@@ -373,108 +341,56 @@ class DroneAudioPipeline:
         self.trainer.add_callback(TrainingHistoryCallback(self))
 
     # STAGE 4: EVALUATE
-    def evaluate_model(self, eval_dataset):
-        """Comprehensive model evaluation using DroneAudioModelEvaluator"""
+    def evaluate_model(self, dataset_name=None):
+        """STAGE 4: Comprehensive model evaluation using DroneAudioModelEvaluator"""
         print("📊 STAGE 4: Evaluating model...")
         
         if self.trainer is None:
             raise ValueError("Model not trained. Call train_model() first.")
         
-        # Get predictions using the trainer (for backward compatibility)
-        predictions = self.trainer.predict(eval_dataset)
-        y_pred = np.argmax(predictions.predictions, axis=1)
-        y_true = predictions.label_ids
-        y_pred_proba = torch.softmax(torch.tensor(predictions.predictions), dim=1).numpy()
-        
-        # Calculate metrics
-        accuracy = accuracy_score(y_true, y_pred)
-        precision, recall, f1, support = precision_recall_fscore_support(y_true, y_pred, average='weighted')
-        cm = confusion_matrix(y_true, y_pred)
-        class_report = classification_report(y_true, y_pred, output_dict=True)
-        
-        # ROC metrics (binary classification)
-        if y_pred_proba.shape[1] == 2:
-            # Check if we have both classes in the evaluation set
-            unique_labels = np.unique(y_true)
-            if len(unique_labels) == 2:
-                try:
-                    fpr, tpr, _ = roc_curve(y_true, y_pred_proba[:, 1])
-                    auc_score = roc_auc_score(y_true, y_pred_proba[:, 1])
-                except ValueError as e:
-                    print(f"⚠️  Warning: ROC calculation failed: {e}")
-                    print("   This usually happens when evaluation set contains only one class")
-                    fpr, tpr, auc_score = None, None, None
-            else:
-                print(f"⚠️  Warning: Evaluation set contains only {len(unique_labels)} class(es): {unique_labels}")
-                print("   ROC curve requires both classes. Skipping ROC metrics.")
-                fpr, tpr, auc_score = None, None, None
-        else:
-            fpr, tpr, auc_score = None, None, None
-        
-        # Store results
-        self.results = {
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f1,
-            'confusion_matrix': cm,
-            'classification_report': class_report,
-            'roc_data': {'fpr': fpr, 'tpr': tpr, 'auc': auc_score},
-            'predictions': y_pred,
-            'true_labels': y_true,
-            'prediction_probabilities': y_pred_proba
-        }
-        
-        # Save results
-        results_file = self.results_dir / f'{self.model_name.replace("/", "_")}_results.pkl'
-        with open(results_file, 'wb') as f:
-            pickle.dump(self.results, f)
-        
-        print("✅ Evaluation completed")
-        return self.results
-    
-    def evaluate_trained_model(self, model_path=None, dataset_name="drone_sampled_0.04"):
-        """
-        Evaluate an already trained model using DroneAudioModelEvaluator
-        
-        Args:
-            model_path: Path to trained model (if None, uses current pipeline's model)
-            dataset_name: Dataset to use for evaluation
-            
-        Returns:
-            tuple: (evaluation_results, visualization_files)
-        """
-        print("📊 STAGE 4: Evaluating trained model with DroneAudioModelEvaluator...")
-        
-        # Determine model path
-        if model_path is None:
-            if self.trainer is None:
-                raise ValueError("No model trained and no model_path provided. Either train a model or provide model_path.")
-            model_path = self._get_model_output_dir()
-        
-        # Check if model exists
-        model_path = Path(model_path)
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found at {model_path}")
-        
         # Use DroneAudioModelEvaluator for comprehensive evaluation
         try:
+            model_path = self._get_model_output_dir()
             evaluator = DroneAudioModelEvaluator(str(model_path), str(self.results_dir))
-            self.results, viz_files = evaluator.run_full_evaluation(dataset_name)
+            # Use dataset_name if provided, otherwise evaluator will use its default
+            if dataset_name:
+                self.results, viz_files = evaluator.run_full_evaluation(dataset_name)
+            else:
+                self.results, viz_files = evaluator.run_full_evaluation()
             
             print("✅ Evaluation completed using DroneAudioModelEvaluator")
             return self.results, viz_files
             
         except Exception as e:
             print(f"❌ DroneAudioModelEvaluator failed: {e}")
-            print("📌 Falling back to pipeline's built-in evaluation...")
-            
-            # Fallback to original evaluation if evaluator fails
-            if hasattr(self, 'processed_dataset') and self.processed_dataset is not None:
-                _, eval_dataset, _ = self.prepare_data_splits()
-                return self.evaluate_model(eval_dataset), []
-            else:
-                raise RuntimeError("Both DroneAudioModelEvaluator and pipeline evaluation failed")
+            print("📌 Falling back to basic evaluation...")
+            return self._basic_evaluate_fallback()
+
+    def _basic_evaluate_fallback(self):
+        """Simple fallback evaluation if DroneAudioModelEvaluator fails"""
+        # Create a simple evaluation dataset from processed data
+        _, eval_dataset, _ = self.prepare_data_splits()
+        
+        # Get basic predictions
+        predictions = self.trainer.predict(eval_dataset)
+        y_pred = np.argmax(predictions.predictions, axis=1)
+        y_true = predictions.label_ids
+        
+        # Basic metrics only
+        accuracy = accuracy_score(y_true, y_pred)
+        precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
+        
+        self.results = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1,
+            'predictions': y_pred,
+            'true_labels': y_true
+        }
+        
+        return self.results, []
+    
 
     # STAGE 5: OBSERVE
     def observe_results(self):
@@ -507,14 +423,13 @@ class DroneAudioPipeline:
         
         return viz_files
 
-    def run_full_pipeline(self, dataset_name=None, custom_training_args=None, use_advanced_evaluator=True):
+    def run_full_pipeline(self, dataset_name=None, custom_training_args=None):
         """
         Execute the complete pipeline: Load -> Pre-Process -> Train -> Evaluate -> Observe
         
         Args:
             dataset_name: Name of dataset to load
             custom_training_args: Custom training configuration
-            use_advanced_evaluator: Whether to use DroneAudioModelEvaluator for evaluation
         """
         print("🚀 Starting Full Audio Classification Pipeline")
         print("=" * 60)
@@ -531,24 +446,11 @@ class DroneAudioPipeline:
             # STAGE 3: Train
             self.train_model(train_dataset, eval_dataset, custom_training_args)
             
-            # STAGE 4: Evaluate
-            if use_advanced_evaluator:
-                print("🔍 Using DroneAudioModelEvaluator for comprehensive evaluation...")
-                try:
-                    evaluation_results, viz_files = self.evaluate_trained_model(dataset_name=dataset_name)
-                    self.results = evaluation_results
-                except Exception as e:
-                    print(f"⚠️  Advanced evaluator failed: {e}")
-                    print("📌 Falling back to standard evaluation...")
-                    self.evaluate_model(eval_dataset)
-                    viz_files = []
-            else:
-                print("📊 Using standard pipeline evaluation...")
-                self.evaluate_model(eval_dataset)
-                viz_files = []
+            # STAGE 4: Evaluate - Now uses DroneAudioModelEvaluator by default
+            self.results, viz_files = self.evaluate_model(dataset_name)
             
-            # STAGE 5: Observe (only if standard evaluation was used)
-            if not use_advanced_evaluator or not viz_files:
+            # STAGE 5: Observe (only if no visualizations were created)
+            if not viz_files:
                 self.observe_results()
             
             print("\n🎉 Pipeline completed successfully!")
