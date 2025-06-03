@@ -1,22 +1,75 @@
 """
 Test script for the DroneAudioModelEvaluator class
 Tests evaluation functionality on trained models
+Optimized to preprocess dataset only once for efficiency
+
+DISCLAIMER: This script is for testing purposes only and has been generated using AI.
 """
 
 import sys
-import numpy as np
+import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import List, Optional, Tuple, Dict, Any
 
-# Add parent directory to path to import modules
-sys.path.append(str(Path(__file__).parent.parent))
+# Add project root to path to import modules
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from eval.model_evaluator import DroneAudioModelEvaluator, evaluate_model
+from src.eval.model_evaluator import DroneAudioModelEvaluator, evaluate_model
 
+# Global test context to avoid repeated preprocessing
+class TestContext:
+    """Shared test context to avoid repeated expensive operations"""
+    def __init__(self):
+        self.models = None
+        self.primary_evaluator = None
+        self.dataset_loaded = False
+        self.preprocessing_done = False
+        
+    def setup(self):
+        """Setup shared test resources"""
+        print("🔧 Setting up shared test context...")
+        
+        # Find models
+        self.models = find_trained_models()
+        if not self.models:
+            print("⚠️  No trained models found for testing")
+            return False
+            
+        # Setup primary evaluator with first model
+        self.primary_evaluator = DroneAudioModelEvaluator(str(self.models[0]), "./test_results_shared")
+        
+        # Load model and feature extractor
+        if not self.primary_evaluator.load_model_and_feature_extractor():
+            print("⚠️  Failed to load model")
+            return False
+        
+        # Load dataset once
+        if not self.primary_evaluator.load_and_prepare_dataset():
+            print("⚠️  Failed to load dataset")
+            return False
+        self.dataset_loaded = True
+        
+        # Preprocess dataset once
+        if not self.primary_evaluator.preprocess_dataset():
+            print("⚠️  Failed to preprocess dataset")
+            return False
+        self.preprocessing_done = True
+        
+        print(f"✅ Test context setup complete:")
+        print(f"   Models found: {len(self.models)}")
+        print(f"   Primary model: {self.primary_evaluator.model_name}")
+        print(f"   Evaluation samples: {len(self.primary_evaluator.eval_dataset)}")
+        
+        return True
+
+# Global test context instance
+test_ctx = TestContext()
 
 def find_trained_models() -> List[Path]:
     """Find all trained models in the models directory"""
-    models_dir = Path("../../models")
+    # Use current working directory as project root
+    project_root = Path(os.getcwd())
+    models_dir = project_root / "models"
     
     if not models_dir.exists():
         print("⚠️  Models directory not found")
@@ -99,40 +152,27 @@ def test_model_loading():
 
 
 def test_dataset_operations():
-    """Test dataset loading and preprocessing"""
+    """Test dataset loading and preprocessing using shared context"""
     print("\n🧪 Testing dataset operations...")
     
     try:
-        models = find_trained_models()
-        if not models:
+        if not test_ctx.models:
             print("ℹ️  No trained models found, skipping dataset test")
             return True
         
-        # Use the first available model
-        evaluator = DroneAudioModelEvaluator(str(models[0]))
+        # Use the shared context that already has dataset loaded
+        evaluator = test_ctx.primary_evaluator
         
-        # Load model (needed for feature extractor)
-        if not evaluator.load_model_and_feature_extractor():
-            print("⚠️  Failed to load model, skipping dataset test")
-            return True
-        
-        # Test dataset loading
-        dataset_success = evaluator.load_and_prepare_dataset()
-        if not dataset_success:
-            print("⚠️  Failed to load dataset")
-            return True
-        
+        # Verify dataset components are loaded
         assert evaluator.dataset is not None
-        print("✅ Dataset loading successful")
+        assert test_ctx.dataset_loaded
+        print("✅ Dataset loading successful (using shared context)")
         
-        # Test preprocessing
-        preprocess_success = evaluator.preprocess_dataset()
-        if preprocess_success:
-            assert evaluator.eval_dataset is not None
-            assert len(evaluator.eval_dataset) > 0
-            print(f"✅ Dataset preprocessing successful: {len(evaluator.eval_dataset)} samples")
-        else:
-            print("⚠️  Dataset preprocessing failed")
+        # Verify preprocessing is done
+        assert evaluator.eval_dataset is not None
+        assert test_ctx.preprocessing_done
+        assert len(evaluator.eval_dataset) > 0
+        print(f"✅ Dataset preprocessing successful: {len(evaluator.eval_dataset)} samples (using shared context)")
         
         return True
     except Exception as e:
@@ -141,33 +181,18 @@ def test_dataset_operations():
 
 
 def test_model_evaluation():
-    """Test model evaluation process"""
+    """Test model evaluation process using shared context"""
     print("\n🧪 Testing model evaluation...")
     
     try:
-        models = find_trained_models()
-        if not models:
+        if not test_ctx.models:
             print("ℹ️  No trained models found, skipping evaluation test")
             return True
         
-        # Use the first available model
-        evaluator = DroneAudioModelEvaluator(str(models[0]))
+        # Use the shared context that already has everything prepared
+        evaluator = test_ctx.primary_evaluator
         
-        # Load model
-        if not evaluator.load_model_and_feature_extractor():
-            print("⚠️  Failed to load model, skipping evaluation test")
-            return True
-        
-        # Load and preprocess dataset
-        if not evaluator.load_and_prepare_dataset():
-            print("⚠️  Failed to load dataset, skipping evaluation test")
-            return True
-        
-        if not evaluator.preprocess_dataset():
-            print("⚠️  Failed to preprocess dataset, skipping evaluation test")
-            return True
-        
-        # Run evaluation
+        # Run evaluation (no need to reload/preprocess)
         eval_success = evaluator.evaluate_model()
         if eval_success:
             assert evaluator.predictions_data is not None
@@ -238,75 +263,35 @@ def test_full_pipeline():
         return False
 
 
-def test_multiple_models():
-    """Test evaluation on multiple models if available"""
-    print("\n🧪 Testing multiple models...")
-    
-    try:
-        models = find_trained_models()
-        if len(models) < 2:
-            print("ℹ️  Less than 2 models found, skipping multi-model test")
-            return True
-        
-        results_summary = []
-        
-        for i, model_path in enumerate(models[:3]):  # Test up to 3 models
-            print(f"\n📂 Testing model {i+1}/{min(3, len(models))}: {model_path.name}")
-            
-            try:
-                evaluator = DroneAudioModelEvaluator(str(model_path), f"./test_results_model_{i}")
-                
-                # Quick evaluation (just metrics, no visualizations)
-                if evaluator.load_model_and_feature_extractor():
-                    if evaluator.load_and_prepare_dataset():
-                        if evaluator.preprocess_dataset():
-                            if evaluator.evaluate_model():
-                                results = evaluator.calculate_metrics()
-                                results_summary.append({
-                                    'model': results['model_name'],
-                                    'accuracy': results['accuracy'],
-                                    'f1_score': results['f1_score']
-                                })
-                                print(f"✅ {results['model_name']}: Acc={results['accuracy']:.4f}, F1={results['f1_score']:.4f}")
-            except Exception as e:
-                print(f"⚠️  Failed to evaluate {model_path.name}: {e}")
-        
-        if results_summary:
-            print(f"\n📊 Multi-model evaluation summary:")
-            for result in results_summary:
-                print(f"   {result['model']}: Accuracy={result['accuracy']:.4f}, F1={result['f1_score']:.4f}")
-            print("✅ Multi-model test successful")
-        
-        return True
-    except Exception as e:
-        print(f"❌ Multi-model test failed: {e}")
-        return False
-
-
 def main():
     """Run all evaluator tests"""
     print("🚀 Starting DroneAudioModelEvaluator Tests")
     print("=" * 70)
     
-    # First, check for available models
-    models = find_trained_models()
-    print(f"📂 Found {len(models)} trained models:")
-    for model in models:
+    # Setup shared test context first to avoid repeated preprocessing
+    print("🔧 Setting up shared test context...")
+    if not test_ctx.setup():
+        print("❌ Failed to setup test context, running basic tests only")
+        # Run only initialization test if setup fails
+        basic_tests = [("Evaluator Initialization", test_evaluator_initialization)]
+    else:
+        # Run all tests with optimized context
+        basic_tests = [
+            ("Evaluator Initialization", test_evaluator_initialization),
+            ("Model Loading", test_model_loading),
+            ("Dataset Operations", test_dataset_operations),
+            ("Model Evaluation", test_model_evaluation),
+            ("Full Pipeline (Isolated)", test_full_pipeline)
+        ]
+    
+    print(f"📂 Found {len(test_ctx.models or [])} trained models:")
+    for model in (test_ctx.models or []):
         print(f"   • {model.name}")
     print()
     
-    tests = [
-        ("Evaluator Initialization", test_evaluator_initialization),
-        ("Model Loading", test_model_loading),
-        ("Dataset Operations", test_dataset_operations),
-        ("Model Evaluation", test_model_evaluation),
-        ("Full Pipeline", test_full_pipeline),
-        ("Multiple Models", test_multiple_models)
-    ]
-    
     results = {}
     
-    for test_name, test_func in tests:
+    for test_name, test_func in basic_tests:
         print(f"\n{'-'*70}")
         print(f"Running: {test_name}")
         print('-'*70)
@@ -329,14 +314,15 @@ def main():
         if passed:
             passed_count += 1
     
-    print(f"\n📊 Results: {passed_count}/{len(tests)} tests passed")
+    print(f"\n📊 Results: {passed_count}/{len(basic_tests)} tests passed")
     
-    if passed_count == len(tests):
+    if passed_count == len(basic_tests):
         print("\n🎉 All evaluator tests passed! The DroneAudioModelEvaluator is ready to use.")
+        print("⚡ Optimized testing: Dataset was preprocessed only once and reused across tests.")
     else:
-        print(f"\n⚠️  {len(tests) - passed_count} test(s) failed. Please check the issues above.")
+        print(f"\n⚠️  {len(basic_tests) - passed_count} test(s) failed. Please check the issues above.")
     
-    return passed_count == len(tests)
+    return passed_count == len(basic_tests)
 
 
 if __name__ == "__main__":

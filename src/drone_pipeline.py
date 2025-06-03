@@ -15,15 +15,9 @@ from transformers import (
 )
 from sklearn.metrics import (
     accuracy_score, 
-    precision_recall_fscore_support,
-    confusion_matrix,
-    roc_curve,
-    roc_auc_score,
-    classification_report
+    precision_recall_fscore_support
 )
-import pandas as pd
 from pathlib import Path
-import pickle
 
 from .visual.visualization import AudioClassificationVisualizer
 from .eval.model_evaluator import DroneAudioModelEvaluator

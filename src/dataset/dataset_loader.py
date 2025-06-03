@@ -5,12 +5,9 @@ Separate from the classifier to allow flexible dataset manipulation
 
 import os
 import numpy as np
-import pandas as pd
 from pathlib import Path
-from typing import Dict, Optional
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
 import pickle
-from tqdm import tqdm
 
 class DroneDatasetLoader:
     """

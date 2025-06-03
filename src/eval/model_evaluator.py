@@ -4,6 +4,7 @@ DroneAudioModelEvaluator - A reusable class for evaluating trained audio classif
 """
 
 import torch
+import sys
 import numpy as np
 from pathlib import Path
 import pickle
@@ -19,8 +20,10 @@ from sklearn.metrics import (
 )
 from datasets import Audio
 
-from ..dataset.dataset_loader import DroneDatasetLoader
-from ..visual.visualization import AudioClassificationVisualizer
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))  
+
+from src.dataset.dataset_loader import DroneDatasetLoader
+from src.visual.visualization import AudioClassificationVisualizer
 
 
 class DroneAudioModelEvaluator:

@@ -4,7 +4,6 @@ Wav2Vec2 Training Script for Drone Sound Recognition
 Using Facebook's Wav2Vec2 model from Hugging Face for audio classification
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from drone_pipeline import DroneAudioPipeline
-from transformers import TrainingArguments
 
 def main():
     """Train Wav2Vec2 model for drone sound recognition."""

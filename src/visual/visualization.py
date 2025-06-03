@@ -5,7 +5,6 @@ Separated from main classifier for better modularity
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
 import json
 from pathlib import Path
 

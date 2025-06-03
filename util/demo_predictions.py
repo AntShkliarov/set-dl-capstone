@@ -4,7 +4,6 @@ Demo script for drone sound predictions using files from the sounds folder
 Tests the prediction system with available models on real audio files
 """
 
-from pathlib import Path
 from predict.predict_drone_sounds import DroneAudioPredictor, get_best_available_model, find_audio_files
 
 def get_sounds_files():

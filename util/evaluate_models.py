@@ -8,9 +8,7 @@ from pathlib import Path
 from src.eval.model_evaluator import (
     DroneAudioModelEvaluator,
     evaluate_model,
-    find_all_trained_models,
     find_latest_checkpoint,
-    evaluate_all_models,
     compare_model_performance
 )
 

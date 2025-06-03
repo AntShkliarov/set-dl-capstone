@@ -12,7 +12,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from drone_pipeline import DroneAudioPipeline
-from transformers import TrainingArguments
 
 def main():
     """Train HuBERT model for drone sound recognition."""

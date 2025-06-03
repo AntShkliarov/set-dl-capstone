@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from pathlib import Path
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
-from src.eval.model_evaluator import DroneAudioModelEvaluator
 import argparse
 
 class DroneAudioPredictor:
